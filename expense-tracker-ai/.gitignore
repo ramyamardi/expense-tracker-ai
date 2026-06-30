@@ -1,9 +1,0 @@
-__pycache__/
-*.pyc
-.env
-data/*.db
-!data/.gitkeep
-.DS_Store
-*.egg-info/
-venv/
-.venv/
