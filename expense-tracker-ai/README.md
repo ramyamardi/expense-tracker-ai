@@ -1,3 +1,15 @@
+
+---
+title: Hearth
+emoji: 🕯️
+colorFrom: yellow
+colorTo: red
+sdk: gradio
+sdk_version: "5.35.0"
+app_file: app.py
+pinned: false
+---
+
 # 🕯️ Hearth — an AI Expense Tracker
 
 Type your expenses in plain English — *"Swiggy 350"*, *"movie with friends 800 split 4 ways"* — and the app extracts, validates, categorizes, and tracks them. Includes anomaly detection, budget tracking, and a next-month spend forecast.
