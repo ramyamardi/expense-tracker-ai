@@ -106,6 +106,22 @@ def find_recent_similar(username: str, merchant: str, amount: float, days: int =
         return [dict(r) for r in rows]
 
 
+def mark_recurring(ids: list[int]):
+    """Retroactively flags earlier matching rows as recurring once a repeat is
+    detected. Without this, only the newest entry in a repeat pair ever gets
+    is_recurring=1 — the original entry that established the pattern stays
+    flagged False forever, so it silently disappears from the Recurring tab
+    and 'Times Logged' undercounts by one."""
+    if not ids:
+        return
+    with get_connection() as conn:
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(
+            f"UPDATE expenses SET is_recurring = 1 WHERE id IN ({placeholders})",
+            ids,
+        )
+
+
 def set_budget(username: str, category: str, monthly_limit: float):
     with get_connection() as conn:
         conn.execute(

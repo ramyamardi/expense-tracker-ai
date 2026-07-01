@@ -74,6 +74,11 @@ def process_expense(username: str, raw_text: str) -> ETLResult:
         similar = db.find_recent_similar(username, transformed["merchant"], transformed["amount"])
         if similar:
             is_recurring = True
+            # Backfill: the earlier occurrence(s) that established this pattern
+            # were logged before we knew they were recurring, so they were
+            # never flagged. Flag them now so they show up in the Recurring
+            # tab and "Times Logged" reflects the true count.
+            db.mark_recurring([row["id"] for row in similar])
 
     # LOAD
     db.insert_expense(

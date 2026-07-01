@@ -50,7 +50,34 @@ CUSTOM_CSS = """
     --shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
+/* Gradio's built-in components (Dataframe, Dropdown, Number, etc.) don't
+   read our custom --ink/--bg/--surface vars — they read Gradio's OWN theme
+   vars, which default to a light theme. Because only the .dark-mode block
+   below ever touched real element colors, the *default* "Charcoal" state
+   left every one of these components on Gradio's light defaults: a white
+   table/dropdown with light-theme text sitting on our dark page, which is
+   why letters vanished. Overriding Gradio's own vars here makes every
+   built-in component follow our palette from first paint, and because
+   .dark-mode below only overrides --bg/--surface (not these), toggling
+   still cascades correctly through them. */
 .gradio-container {
+    --body-text-color: var(--ink) !important;
+    --body-text-color-subdued: var(--muted) !important;
+    --body-background-fill: var(--bg) !important;
+    --background-fill-primary: var(--bg) !important;
+    --background-fill-secondary: var(--surface) !important;
+    --block-background-fill: var(--surface) !important;
+    --block-border-color: var(--hairline) !important;
+    --block-label-text-color: var(--muted) !important;
+    --block-title-text-color: var(--ink) !important;
+    --input-background-fill: var(--surface) !important;
+    --border-color-primary: var(--hairline) !important;
+    --border-color-accent: var(--gold) !important;
+    --table-border-color: var(--hairline) !important;
+    --table-even-background-fill: var(--surface) !important;
+    --table-odd-background-fill: var(--surface-hover) !important;
+    --table-row-focus: var(--surface-hover) !important;
+
     background: var(--bg) !important;
     font-family: 'Inter', sans-serif !important;
     color: var(--ink) !important;
@@ -67,11 +94,6 @@ CUSTOM_CSS = """
     color: var(--ink) !important;
 }
 .dark-mode #tally-header .wordmark { color: var(--ink) !important; }
-.dark-mode table, .dark-mode .dataframe {
-    background: var(--surface) !important;
-    color: var(--ink) !important;
-}
-.dark-mode #ledger-preview { border-top-color: var(--hairline); }
 
 #tally-header {
     text-align: center;
@@ -177,6 +199,15 @@ table, .dataframe {
     font-size: 13px !important;
     border-radius: 8px !important;
     overflow: hidden;
+    background: var(--surface) !important;
+    color: var(--ink) !important;
+}
+table th, .dataframe th {
+    background: var(--surface-hover) !important;
+    color: var(--gold) !important;
+}
+table td, .dataframe td {
+    color: var(--ink) !important;
 }
 
 #theme-toggle {
@@ -367,7 +398,7 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
             history_table = gr.Dataframe(label="Recent entries", interactive=False)
 
             entry_box.change(live_preview, inputs=entry_box, outputs=preview_html)
-            submit_btn.click(
+            submit_event = submit_btn.click(
                 add_expense,
                 inputs=[username_box, entry_box],
                 outputs=[status_box, history_table, entry_box],
@@ -425,6 +456,11 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
 
             csv_btn.click(do_export_csv, inputs=username_box, outputs=export_file)
             pdf_btn.click(do_export_pdf, inputs=username_box, outputs=export_file)
+
+    # Log-a-Spend also feeds the Recurring tab: without this, that table only
+    # updated on its own Refresh click or a username change, so a freshly
+    # logged repeat entry looked like it wasn't detected even though it was.
+    submit_event.then(_recurring_table, inputs=username_box, outputs=recurring_table)
 
     # theme wiring — Python updates the state + persists the preference,
     # then the `js=` callback actually flips the CSS class on the page.
