@@ -30,41 +30,48 @@ import analytics
 db.init_db()
 
 # ---------------------------------------------------------------- design tokens
+# Palette moved away from parchment/beige entirely. "Charcoal" (default) and
+# "Midnight" (toggle target) are both dark themes now — the toggle switches
+# between a warm deep-charcoal and a near-black, rather than light vs. dark.
 CUSTOM_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');
 
 :root {
-    --ink: #1F2A24;
-    --parchment: #FAF6EE;
-    --surface: #FFFFFF;
-    --gold: #B98B2E;
-    --sage: #6B8F71;
-    --terracotta: #B5533C;
-    --hairline: #E3DCC9;
+    --ink: #ECE7DA;
+    --bg: #1B1F1C;
+    --surface: #232823;
+    --surface-hover: #2B312B;
+    --gold: #D8A94E;
+    --gold-soft: #6B5A30;
+    --sage: #86B392;
+    --terracotta: #D9866A;
+    --hairline: #343B35;
+    --muted: #93998F;
+    --shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
 .gradio-container {
-    background: var(--parchment) !important;
+    background: var(--bg) !important;
     font-family: 'Inter', sans-serif !important;
     color: var(--ink) !important;
     transition: background 0.25s ease, color 0.25s ease;
 }
 
+/* "Midnight" mode — the deeper, secondary dark theme reached via toggle */
 .dark-mode.gradio-container {
-    background: #141815 !important;
-    color: #F2EDE2 !important;
+    --bg: #0D0F0E;
+    --surface: #161917;
+    --surface-hover: #1E2220;
+    --hairline: #262B27;
+    background: var(--bg) !important;
+    color: var(--ink) !important;
 }
-.dark-mode #tally-header .wordmark { color: #F2EDE2 !important; }
-.dark-mode .gr-button-secondary, .dark-mode button.secondary {
-    background: #1F2521 !important;
-    border-color: #2E3530 !important;
-    color: #F2EDE2 !important;
-}
+.dark-mode #tally-header .wordmark { color: var(--ink) !important; }
 .dark-mode table, .dark-mode .dataframe {
-    background: #1A1F1C !important;
-    color: #F2EDE2 !important;
+    background: var(--surface) !important;
+    color: var(--ink) !important;
 }
-.dark-mode #ledger-preview { border-top-color: #2E3530; }
+.dark-mode #ledger-preview { border-top-color: var(--hairline); }
 
 #tally-header {
     text-align: center;
@@ -93,16 +100,41 @@ CUSTOM_CSS = """
     margin: 0 auto 14px auto;
 }
 
-.gr-button-primary, button.primary {
-    background: var(--ink) !important;
+/* ---- buttons: rounded, layered, icon-friendly, with hover lift ---- */
+button.primary, .gr-button-primary {
+    background: linear-gradient(180deg, var(--gold) 0%, #C4903F 100%) !important;
     border: none !important;
-    color: var(--parchment) !important;
-    font-weight: 500 !important;
+    color: #1B1500 !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    box-shadow: var(--shadow);
+    padding: 10px 18px !important;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
 }
-.gr-button-secondary, button.secondary {
+button.primary:hover, .gr-button-primary:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+button.primary:active, .gr-button-primary:active {
+    transform: translateY(0);
+    filter: brightness(0.97);
+}
+
+button.secondary, .gr-button-secondary {
     background: var(--surface) !important;
     border: 1px solid var(--hairline) !important;
     color: var(--ink) !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    box-shadow: var(--shadow);
+    padding: 10px 18px !important;
+    transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+button.secondary:hover, .gr-button-secondary:hover {
+    background: var(--surface-hover) !important;
+    border-color: var(--gold) !important;
+    transform: translateY(-1px);
 }
 
 #ledger-preview {
@@ -115,20 +147,51 @@ CUSTOM_CSS = """
     min-height: 24px;
 }
 #ledger-preview .amount { color: var(--gold); font-weight: 600; }
-#ledger-preview .empty { color: #A8A096; font-style: italic; font-family: 'Inter', sans-serif; }
+#ledger-preview .empty { color: var(--muted); font-style: italic; font-family: 'Inter', sans-serif; }
 
+/* ---- tabs: pill-style, icon-forward, clear active state ---- */
+.tab-nav {
+    gap: 4px !important;
+    border-bottom: 1px solid var(--hairline) !important;
+}
 .tab-nav button {
     font-family: 'Inter', sans-serif !important;
     font-weight: 500 !important;
+    color: var(--muted) !important;
+    border-radius: 8px 8px 0 0 !important;
+    padding: 9px 16px !important;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.tab-nav button:hover {
+    background: var(--surface-hover) !important;
+    color: var(--ink) !important;
+}
+.tab-nav button.selected {
+    background: var(--surface) !important;
+    color: var(--gold) !important;
+    box-shadow: inset 0 -2px 0 var(--gold);
 }
 
 table, .dataframe {
     font-family: 'IBM Plex Mono', monospace !important;
     font-size: 13px !important;
+    border-radius: 8px !important;
+    overflow: hidden;
 }
 
 #theme-toggle {
-    max-width: 130px;
+    max-width: 150px;
+}
+
+/* form surfaces get a subtle card treatment so they read as "ledger paper"
+   rather than flat background */
+.gr-box, .form, .block {
+    border-radius: 12px !important;
+}
+input, textarea, .gr-box {
+    background: var(--surface) !important;
+    border-color: var(--hairline) !important;
+    color: var(--ink) !important;
 }
 """
 
@@ -256,11 +319,7 @@ def toggle_theme(username: str, current: str):
     new_theme = "Light" if current == "Dark" else "Dark"
     if username and username.strip():
         db.set_preference(username.strip(), "theme", new_theme)
-    return new_theme, gr.update(value=f"{'☀️ Light' if new_theme == 'Dark' else '🌙 Dark'} mode")
-
-
-def apply_theme_class(theme: str):
-    return gr.update(elem_classes=["dark-mode"] if theme == "Dark" else [])
+    return new_theme, gr.update(value=f"{'🌗 Charcoal' if new_theme == 'Dark' else '🌑 Midnight'} mode")
 
 
 def load_user_theme(username: str):
@@ -268,6 +327,20 @@ def load_user_theme(username: str):
         saved = db.get_preference(username.strip(), "theme", "Light")
         return saved
     return "Light"
+
+
+# The previous approach tried to flip the theme by sending
+# `gr.update(elem_classes=...)` to the top-level `demo` Blocks object as an
+# event *output*. Blocks isn't a regular component, so it silently never
+# applied the class — that's why neither toggle direction actually changed
+# anything. Toggling a CSS class on the root container is a DOM operation,
+# so it's done with a tiny bit of client-side JS instead, fired via the `js=`
+# argument on `.then(...)`. This is the reliable way to do it in Gradio.
+TOGGLE_THEME_JS = """(theme) => {
+    const root = document.querySelector('.gradio-container');
+    if (root) root.classList.toggle('dark-mode', theme === 'Dark');
+    return theme;
+}"""
 
 
 # ---------------------------------------------------------------- layout
@@ -278,7 +351,7 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
         with gr.Column(scale=5):
             gr.HTML(HEADER_HTML)
         with gr.Column(scale=1, min_width=130):
-            theme_btn = gr.Button("🌙 Dark mode", elem_id="theme-toggle", size="sm")
+            theme_btn = gr.Button("🌑 Midnight mode", elem_id="theme-toggle", size="sm")
 
     username_box = gr.Textbox(label="", placeholder="✦ what's your name?", container=False)
 
@@ -289,7 +362,7 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
                 placeholder="e.g. 'Swiggy 350' or 'movie with friends 800 split 4 ways'",
             )
             preview_html = gr.HTML(live_preview(""))
-            submit_btn = gr.Button("Add to ledger", variant="primary")
+            submit_btn = gr.Button("➕ Add to Ledger", variant="primary")
             status_box = gr.Textbox(label="", interactive=False, container=False)
             history_table = gr.Dataframe(label="Recent entries", interactive=False)
 
@@ -302,7 +375,7 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
             username_box.change(_history_table, inputs=username_box, outputs=history_table)
 
         with gr.Tab("📊 Insights"):
-            refresh_btn = gr.Button("Refresh")
+            refresh_btn = gr.Button("🔄 Refresh Insights", variant="secondary")
             with gr.Row():
                 cat_plot = gr.Plot(label="Spend by category")
                 trend_plot = gr.Plot(label="Monthly trend")
@@ -319,7 +392,7 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
             with gr.Row():
                 category_dropdown = gr.Dropdown(choices=CATEGORIES, label="Category")
                 limit_input = gr.Number(label="Monthly limit (₹)")
-            budget_btn = gr.Button("Set budget")
+            budget_btn = gr.Button("🎯 Set Budget", variant="primary")
             budget_status = gr.Textbox(label="", interactive=False, container=False)
             budget_table = gr.Dataframe(
                 label="Budget vs. actual — this month (🟢 on track · 🟡 80%+ · 🔴 over)",
@@ -338,7 +411,7 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
                 "same amount, within ~35 days. Good place to check for subscriptions "
                 "you forgot about."
             )
-            recurring_refresh_btn = gr.Button("Refresh")
+            recurring_refresh_btn = gr.Button("🔄 Refresh", variant="secondary")
             recurring_table = gr.Dataframe(label="Recurring charges", interactive=False)
             recurring_refresh_btn.click(_recurring_table, inputs=username_box, outputs=recurring_table)
             username_box.change(_recurring_table, inputs=username_box, outputs=recurring_table)
@@ -346,24 +419,30 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
         with gr.Tab("⬇️ Export"):
             gr.Markdown("Download your ledger as a spreadsheet, or a formatted monthly statement.")
             with gr.Row():
-                csv_btn = gr.Button("Export CSV")
-                pdf_btn = gr.Button("Export PDF statement")
+                csv_btn = gr.Button("📊 Export CSV", variant="secondary")
+                pdf_btn = gr.Button("📄 Export PDF Statement", variant="secondary")
             export_file = gr.File(label="Your download", interactive=False)
 
             csv_btn.click(do_export_csv, inputs=username_box, outputs=export_file)
             pdf_btn.click(do_export_pdf, inputs=username_box, outputs=export_file)
 
-    # theme wiring
+    # theme wiring — Python updates the state + persists the preference,
+    # then the `js=` callback actually flips the CSS class on the page.
     theme_btn.click(
         toggle_theme, inputs=[username_box, theme_state], outputs=[theme_state, theme_btn]
-    ).then(apply_theme_class, inputs=theme_state, outputs=demo)
+    ).then(None, inputs=theme_state, outputs=None, js=TOGGLE_THEME_JS)
 
     username_box.change(load_user_theme, inputs=username_box, outputs=theme_state).then(
-        apply_theme_class, inputs=theme_state, outputs=demo
+        None, inputs=theme_state, outputs=None, js=TOGGLE_THEME_JS
     ).then(
-        lambda t: gr.update(value=f"{'☀️ Light' if t == 'Dark' else '🌙 Dark'} mode"),
+        lambda t: gr.update(value=f"{'🌗 Charcoal' if t == 'Dark' else '🌑 Midnight'} mode"),
         inputs=theme_state, outputs=theme_btn,
     )
+
+    # Apply the right class immediately on first paint too (covers the case
+    # where a returning user's saved theme is "Dark" but the page loads
+    # before any component-level event fires).
+    demo.load(None, inputs=theme_state, outputs=None, js=TOGGLE_THEME_JS)
 
 if __name__ == "__main__":
     demo.launch()

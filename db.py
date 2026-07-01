@@ -11,7 +11,7 @@ This is the difference between "storing data" and "designing a data model".
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_PATH = "data/expenses.db"
 
@@ -80,13 +80,28 @@ def get_expenses(username: str):
 
 
 def find_recent_similar(username: str, merchant: str, amount: float, days: int = 35):
-    """Used by the ETL layer to flag recurring subscriptions / duplicates."""
+    """Used by the ETL layer to flag recurring subscriptions / duplicates.
+
+    Two bugs fixed here:
+    1. `merchant = ?` was a case-sensitive, whitespace-sensitive exact match.
+       Since merchant names get title-cased upstream but can still vary
+       slightly (extra spaces, different casing from the LLM parser across
+       calls), this silently failed to match real repeats. Now compares on
+       LOWER(TRIM(merchant)).
+    2. `datetime('now', ...)` evaluates in UTC, but `created_at` is written
+       with Python's `datetime.now()`, which is local time. Comparing a
+       local timestamp against a UTC cutoff is inconsistent depending on
+       the server's timezone. Now the cutoff is computed in Python using
+       the same clock that wrote `created_at`.
+    """
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    needle = merchant.strip().lower() if merchant else ""
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT * FROM expenses
-               WHERE username = ? AND merchant = ? AND ABS(amount - ?) < 1
-               AND created_at >= datetime('now', ?)""",
-            (username, merchant, amount, f"-{days} days"),
+               WHERE username = ? AND LOWER(TRIM(merchant)) = ? AND ABS(amount - ?) < 1
+               AND created_at >= ?""",
+            (username, needle, amount, cutoff),
         ).fetchall()
         return [dict(r) for r in rows]
 

@@ -21,14 +21,17 @@ import numpy as np
 import plotly.graph_objects as go
 import db
 
-# Shared palette — keeps every chart on-brand with the parchment/ink/gold UI
-INK = "#1F2A24"
-GOLD = "#B98B2E"
-SAGE = "#6B8F71"
-TERRACOTTA = "#B5533C"
-PARCHMENT = "#FAF6EE"
-HAIRLINE = "#E3DCC9"
-CATEGORY_COLORS = [GOLD, SAGE, TERRACOTTA, "#7C9CBF", "#A8779A", "#C2A24E", "#5E8B7E", "#9C8265"]
+# Shared palette — matches the charcoal/midnight/gold UI in app.py.
+# "Charcoal" (default, dark=False) and "Midnight" (dark=True) are both dark
+# themes now, just at different depths — there is no light/beige mode.
+INK = "#ECE7DA"
+GOLD = "#D8A94E"
+SAGE = "#86B392"
+TERRACOTTA = "#D9866A"
+CHARCOAL_BG = "#232823"   # "Charcoal" mode chart background (default)
+MIDNIGHT_BG = "#161917"   # "Midnight" mode chart background (toggled)
+HAIRLINE = "#343B35"
+CATEGORY_COLORS = [GOLD, SAGE, TERRACOTTA, "#7FA3C9", "#C08FBE", "#D9C069", "#6FB39F", "#B99B7A"]
 
 
 def _to_dataframe(username: str) -> pd.DataFrame:
@@ -218,8 +221,8 @@ def forecast_next_month(username: str) -> dict:
 
 def plot_category_breakdown(username: str, dark: bool = False):
     data = category_breakdown(username)
-    bg = "#1A1F1C" if dark else PARCHMENT
-    fg = PARCHMENT if dark else INK
+    bg = MIDNIGHT_BG if dark else CHARCOAL_BG
+    fg = INK
     fig = go.Figure()
     if data.empty:
         fig.add_annotation(text="No data yet", showarrow=False, font=dict(color=fg, size=14))
@@ -237,7 +240,7 @@ def plot_category_breakdown(username: str, dark: bool = False):
         font=dict(color=fg, family="Inter, sans-serif"),
         margin=dict(t=50, b=40, l=40, r=20),
         height=360,
-        yaxis=dict(gridcolor=HAIRLINE if not dark else "#2E3530", title="₹"),
+        yaxis=dict(gridcolor=HAIRLINE, title="₹"),
         xaxis=dict(gridcolor=bg),
     )
     return fig
@@ -245,8 +248,8 @@ def plot_category_breakdown(username: str, dark: bool = False):
 
 def plot_monthly_trend(username: str, dark: bool = False):
     data = monthly_trend(username)
-    bg = "#1A1F1C" if dark else PARCHMENT
-    fg = PARCHMENT if dark else INK
+    bg = MIDNIGHT_BG if dark else CHARCOAL_BG
+    fg = INK
     fig = go.Figure()
     if data.empty:
         fig.add_annotation(text="No data yet", showarrow=False, font=dict(color=fg, size=14))
@@ -264,7 +267,7 @@ def plot_monthly_trend(username: str, dark: bool = False):
         font=dict(color=fg, family="Inter, sans-serif"),
         margin=dict(t=50, b=40, l=40, r=20),
         height=360,
-        yaxis=dict(gridcolor=HAIRLINE if not dark else "#2E3530", title="₹"),
+        yaxis=dict(gridcolor=HAIRLINE, title="₹"),
         xaxis=dict(gridcolor=bg),
     )
     return fig
