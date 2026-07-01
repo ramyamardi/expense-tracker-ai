@@ -49,6 +49,14 @@ def init_db():
                 PRIMARY KEY (username, category)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS preferences (
+                username TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (username, key)
+            )
+        """)
 
 
 def insert_expense(username: str, raw_text: str, amount: float, category: str,
@@ -96,3 +104,31 @@ def get_budgets(username: str):
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM budgets WHERE username = ?", (username,)).fetchall()
         return {r["category"]: r["monthly_limit"] for r in rows}
+
+
+def get_recurring_expenses(username: str):
+    """All entries ever flagged as recurring, most recent first."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM expenses WHERE username = ? AND is_recurring = 1 ORDER BY created_at DESC",
+            (username,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_preference(username: str, key: str, value: str):
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO preferences (username, key, value) VALUES (?, ?, ?)
+               ON CONFLICT(username, key) DO UPDATE SET value = excluded.value""",
+            (username, key, value),
+        )
+
+
+def get_preference(username: str, key: str, default: str = None):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM preferences WHERE username = ? AND key = ?",
+            (username, key),
+        ).fetchone()
+        return row["value"] if row else default

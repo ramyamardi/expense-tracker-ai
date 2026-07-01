@@ -2,17 +2,33 @@
 analytics.py
 ------------
 The "flex" layer: category breakdown, month-over-month trend, anomaly
-detection, and a simple linear-regression forecast for next month's spend.
+detection, a simple linear-regression forecast for next month's spend,
+budget-status scoring, recurring-subscription summary, and CSV/PDF export.
+
+Charts are Plotly (not Matplotlib) — interactive hover tooltips, and they
+render natively inside Gradio without a static PNG round-trip, which is
+what makes the dashboard feel like a real product instead of a script
+that "also makes a chart."
 
 No scikit-learn dependency on purpose — the regression is plain numpy
 (polyfit), which keeps the requirements.txt small and is easy to explain
 line-by-line in an interview ("I didn't import a black box, here's the math").
 """
 
+import io
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import db
+
+# Shared palette — keeps every chart on-brand with the parchment/ink/gold UI
+INK = "#1F2A24"
+GOLD = "#B98B2E"
+SAGE = "#6B8F71"
+TERRACOTTA = "#B5533C"
+PARCHMENT = "#FAF6EE"
+HAIRLINE = "#E3DCC9"
+CATEGORY_COLORS = [GOLD, SAGE, TERRACOTTA, "#7C9CBF", "#A8779A", "#C2A24E", "#5E8B7E", "#9C8265"]
 
 
 def _to_dataframe(username: str) -> pd.DataFrame:
@@ -42,14 +58,114 @@ def monthly_trend(username: str) -> pd.DataFrame:
 def budget_vs_actual(username: str) -> pd.DataFrame:
     df = _to_dataframe(username)
     budgets = db.get_budgets(username)
-    if df.empty or not budgets:
-        return pd.DataFrame(columns=["category", "spent", "budget"])
+    if not budgets:
+        return pd.DataFrame(columns=["category", "spent", "budget", "pct", "status"])
     current_month = pd.Timestamp.now().to_period("M").strftime("%Y-%m")
-    this_month = df[df["month"] == current_month]
-    spent = this_month.groupby("category")["amount"].sum().to_dict()
-    rows = [{"category": cat, "spent": spent.get(cat, 0.0), "budget": limit}
-            for cat, limit in budgets.items()]
-    return pd.DataFrame(rows)
+    this_month = df[df["month"] == current_month] if not df.empty else df
+    spent = this_month.groupby("category")["amount"].sum().to_dict() if not this_month.empty else {}
+    rows = []
+    for cat, limit in budgets.items():
+        s = spent.get(cat, 0.0)
+        pct = (s / limit * 100) if limit > 0 else 0
+        if pct >= 100:
+            status = "🔴 Over"
+        elif pct >= 80:
+            status = "🟡 Close"
+        else:
+            status = "🟢 On track"
+        rows.append({"category": cat, "spent": round(s, 2), "budget": limit,
+                      "pct": round(pct, 1), "status": status})
+    return pd.DataFrame(rows).sort_values("pct", ascending=False)
+
+
+def recurring_summary(username: str) -> pd.DataFrame:
+    """Distinct recurring merchants with their amount and how many times seen —
+    effectively a subscriptions view, built from the same flag etl.py already sets."""
+    rows = db.get_recurring_expenses(username)
+    if not rows:
+        return pd.DataFrame(columns=["Merchant", "Amount", "Category", "Times Logged", "Last Seen"])
+    df = pd.DataFrame(rows)
+    grouped = df.groupby(["merchant", "category"]).agg(
+        amount=("amount", "first"),
+        times=("id", "count"),
+        last_seen=("created_at", "max"),
+    ).reset_index().sort_values("last_seen", ascending=False)
+    grouped["last_seen"] = pd.to_datetime(grouped["last_seen"]).dt.strftime("%Y-%m-%d")
+    grouped.columns = ["Merchant", "Category", "Amount", "Times Logged", "Last Seen"]
+    return grouped[["Merchant", "Amount", "Category", "Times Logged", "Last Seen"]]
+
+
+def export_csv(username: str) -> str:
+    """Writes a CSV to disk and returns the path, for Gradio's gr.File download."""
+    rows = db.get_expenses(username)
+    path = f"data/{username}_expenses.csv"
+    if not rows:
+        pd.DataFrame(columns=["created_at", "raw_text", "amount", "category", "merchant", "is_recurring"]).to_csv(path, index=False)
+        return path
+    df = pd.DataFrame(rows)[["created_at", "raw_text", "amount", "category", "merchant", "is_recurring"]]
+    df.to_csv(path, index=False)
+    return path
+
+
+def export_pdf(username: str) -> str:
+    """Builds a simple monthly statement PDF using reportlab — no heavyweight
+    templating engine, just direct canvas drawing, same philosophy as the rest
+    of this codebase (no black boxes)."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import mm
+
+    path = f"data/{username}_statement.pdf"
+    rows = db.get_expenses(username)
+    cat_totals = category_breakdown(username)
+    forecast = forecast_next_month(username)
+
+    c = canvas.Canvas(path, pagesize=A4)
+    width, height = A4
+    y = height - 25 * mm
+
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(20 * mm, y, "Hearth — Monthly Statement")
+    y -= 8 * mm
+    c.setFont("Helvetica", 10)
+    c.drawString(20 * mm, y, f"User: {username}    Generated: {pd.Timestamp.now().strftime('%Y-%m-%d')}")
+    y -= 12 * mm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20 * mm, y, "Spend by Category")
+    y -= 7 * mm
+    c.setFont("Helvetica", 10)
+    if cat_totals.empty:
+        c.drawString(20 * mm, y, "No data yet.")
+        y -= 6 * mm
+    else:
+        for _, row in cat_totals.iterrows():
+            c.drawString(22 * mm, y, f"{row['category']:<25} Rs. {row['amount']:.2f}")
+            y -= 6 * mm
+
+    y -= 6 * mm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20 * mm, y, "Forecast")
+    y -= 7 * mm
+    c.setFont("Helvetica", 10)
+    c.drawString(22 * mm, y, forecast["message"])
+    y -= 12 * mm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20 * mm, y, "Recent Entries")
+    y -= 7 * mm
+    c.setFont("Helvetica", 9)
+    for r in rows[:25]:
+        if y < 20 * mm:
+            c.showPage()
+            y = height - 20 * mm
+            c.setFont("Helvetica", 9)
+        line = f"{r['created_at'][:10]}  Rs.{r['amount']:.2f}  {r['category']}  {r['merchant'] or ''}"
+        c.drawString(22 * mm, y, line[:90])
+        y -= 5.5 * mm
+
+    c.save()
+    return path
 
 
 def detect_anomalies(username: str, multiplier: float = 3.0) -> list[dict]:
@@ -100,29 +216,55 @@ def forecast_next_month(username: str) -> dict:
     }
 
 
-def plot_category_breakdown(username: str):
+def plot_category_breakdown(username: str, dark: bool = False):
     data = category_breakdown(username)
-    fig, ax = plt.subplots(figsize=(6, 4))
+    bg = "#1A1F1C" if dark else PARCHMENT
+    fg = PARCHMENT if dark else INK
+    fig = go.Figure()
     if data.empty:
-        ax.text(0.5, 0.5, "No data yet", ha="center", va="center")
+        fig.add_annotation(text="No data yet", showarrow=False, font=dict(color=fg, size=14))
     else:
-        ax.bar(data["category"], data["amount"], color="#4C72B0")
-        ax.set_ylabel("Total Spend (₹)")
-        ax.set_title("Spend by Category")
-        plt.xticks(rotation=30, ha="right")
-    fig.tight_layout()
+        fig.add_trace(go.Bar(
+            x=data["category"], y=data["amount"],
+            marker_color=CATEGORY_COLORS[:len(data)],
+            text=[f"₹{v:,.0f}" for v in data["amount"]],
+            textposition="outside",
+            hovertemplate="%{x}<br>₹%{y:,.2f}<extra></extra>",
+        ))
+    fig.update_layout(
+        title="Spend by Category",
+        paper_bgcolor=bg, plot_bgcolor=bg,
+        font=dict(color=fg, family="Inter, sans-serif"),
+        margin=dict(t=50, b=40, l=40, r=20),
+        height=360,
+        yaxis=dict(gridcolor=HAIRLINE if not dark else "#2E3530", title="₹"),
+        xaxis=dict(gridcolor=bg),
+    )
     return fig
 
 
-def plot_monthly_trend(username: str):
+def plot_monthly_trend(username: str, dark: bool = False):
     data = monthly_trend(username)
-    fig, ax = plt.subplots(figsize=(6, 4))
+    bg = "#1A1F1C" if dark else PARCHMENT
+    fg = PARCHMENT if dark else INK
+    fig = go.Figure()
     if data.empty:
-        ax.text(0.5, 0.5, "No data yet", ha="center", va="center")
+        fig.add_annotation(text="No data yet", showarrow=False, font=dict(color=fg, size=14))
     else:
-        ax.plot(data["month"], data["amount"], marker="o", color="#DD8452")
-        ax.set_ylabel("Total Spend (₹)")
-        ax.set_title("Monthly Spend Trend")
-        plt.xticks(rotation=30, ha="right")
-    fig.tight_layout()
+        fig.add_trace(go.Scatter(
+            x=data["month"], y=data["amount"],
+            mode="lines+markers",
+            line=dict(color=TERRACOTTA, width=2.5),
+            marker=dict(size=8, color=GOLD),
+            hovertemplate="%{x}<br>₹%{y:,.2f}<extra></extra>",
+        ))
+    fig.update_layout(
+        title="Monthly Spend Trend",
+        paper_bgcolor=bg, plot_bgcolor=bg,
+        font=dict(color=fg, family="Inter, sans-serif"),
+        margin=dict(t=50, b=40, l=40, r=20),
+        height=360,
+        yaxis=dict(gridcolor=HAIRLINE if not dark else "#2E3530", title="₹"),
+        xaxis=dict(gridcolor=bg),
+    )
     return fig

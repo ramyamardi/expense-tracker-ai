@@ -8,12 +8,16 @@ a mood-tracking companion earns trust with softness, a money app earns
 trust with legibility, so the visual identity leans into that: parchment
 + ink + a single brass-gold accent, a serif wordmark, and monospaced
 numerals everywhere money is shown (so digits actually line up, the
-way they do in a real ledger).
+way they do in a real ledger). A dark "ink" mode keeps the same logic
+inverted, for low-light use.
 
 Signature element: a live "ledger preview" row under the input box
 that shows exactly how an entry will be parsed — amount, category,
 merchant — before it's committed. Built on etl.preview(), which runs
 extract + transform without writing to the database.
+
+v2 additions: color-coded budget status, a recurring-subscriptions
+view, CSV/PDF export, and a dark-mode toggle persisted per username.
 """
 
 import gradio as gr
@@ -43,11 +47,29 @@ CUSTOM_CSS = """
     background: var(--parchment) !important;
     font-family: 'Inter', sans-serif !important;
     color: var(--ink) !important;
+    transition: background 0.25s ease, color 0.25s ease;
 }
+
+.dark-mode.gradio-container {
+    background: #141815 !important;
+    color: #F2EDE2 !important;
+}
+.dark-mode #tally-header .wordmark { color: #F2EDE2 !important; }
+.dark-mode .gr-button-secondary, .dark-mode button.secondary {
+    background: #1F2521 !important;
+    border-color: #2E3530 !important;
+    color: #F2EDE2 !important;
+}
+.dark-mode table, .dark-mode .dataframe {
+    background: #1A1F1C !important;
+    color: #F2EDE2 !important;
+}
+.dark-mode #ledger-preview { border-top-color: #2E3530; }
 
 #tally-header {
     text-align: center;
     padding: 36px 16px 20px 16px;
+    position: relative;
 }
 #tally-header .wordmark {
     font-family: 'Fraunces', serif;
@@ -104,6 +126,10 @@ table, .dataframe {
     font-family: 'IBM Plex Mono', monospace !important;
     font-size: 13px !important;
 }
+
+#theme-toggle {
+    max-width: 130px;
+}
 """
 
 HEADER_HTML = """
@@ -159,14 +185,15 @@ def _history_table(username: str) -> pd.DataFrame:
     return df
 
 
-def refresh_dashboard(username: str):
+def refresh_dashboard(username: str, theme: str):
+    dark = theme == "Dark"
     if not username or not username.strip():
-        empty_fig = analytics.plot_category_breakdown("")
+        empty_fig = analytics.plot_category_breakdown("", dark=dark)
         return empty_fig, empty_fig, "Enter a username to see insights.", "Add a few entries to unlock a forecast."
 
     username = username.strip()
-    cat_fig = analytics.plot_category_breakdown(username)
-    trend_fig = analytics.plot_monthly_trend(username)
+    cat_fig = analytics.plot_category_breakdown(username, dark=dark)
+    trend_fig = analytics.plot_monthly_trend(username, dark=dark)
 
     anomalies = analytics.detect_anomalies(username)
     if anomalies:
@@ -192,19 +219,66 @@ def set_budget(username: str, category: str, limit: float):
 
 
 def _budget_table(username: str) -> pd.DataFrame:
-    cols = ["Category", "Spent This Month", "Budget"]
+    cols = ["Category", "Spent This Month", "Budget", "% Used", "Status"]
     if not username or not username.strip():
         return pd.DataFrame(columns=cols)
     data = analytics.budget_vs_actual(username.strip())
     if data.empty:
         return pd.DataFrame(columns=cols)
-    data.columns = cols
-    return data
+    data = data.rename(columns={
+        "category": "Category", "spent": "Spent This Month",
+        "budget": "Budget", "pct": "% Used", "status": "Status",
+    })
+    return data[cols]
+
+
+def _recurring_table(username: str) -> pd.DataFrame:
+    if not username or not username.strip():
+        return pd.DataFrame(columns=["Merchant", "Category", "Amount", "Times Logged", "Last Seen"])
+    return analytics.recurring_summary(username.strip())
+
+
+def do_export_csv(username: str):
+    if not username or not username.strip():
+        gr.Warning("Enter a username first.")
+        return None
+    return analytics.export_csv(username.strip())
+
+
+def do_export_pdf(username: str):
+    if not username or not username.strip():
+        gr.Warning("Enter a username first.")
+        return None
+    return analytics.export_pdf(username.strip())
+
+
+def toggle_theme(username: str, current: str):
+    new_theme = "Light" if current == "Dark" else "Dark"
+    if username and username.strip():
+        db.set_preference(username.strip(), "theme", new_theme)
+    return new_theme, gr.update(value=f"{'☀️ Light' if new_theme == 'Dark' else '🌙 Dark'} mode")
+
+
+def apply_theme_class(theme: str):
+    return gr.update(elem_classes=["dark-mode"] if theme == "Dark" else [])
+
+
+def load_user_theme(username: str):
+    if username and username.strip():
+        saved = db.get_preference(username.strip(), "theme", "Light")
+        return saved
+    return "Light"
 
 
 # ---------------------------------------------------------------- layout
 with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as demo:
-    gr.HTML(HEADER_HTML)
+    theme_state = gr.State("Light")
+
+    with gr.Row():
+        with gr.Column(scale=5):
+            gr.HTML(HEADER_HTML)
+        with gr.Column(scale=1, min_width=130):
+            theme_btn = gr.Button("🌙 Dark mode", elem_id="theme-toggle", size="sm")
 
     username_box = gr.Textbox(label="", placeholder="✦ what's your name?", container=False)
 
@@ -237,7 +311,7 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
 
             refresh_btn.click(
                 refresh_dashboard,
-                inputs=username_box,
+                inputs=[username_box, theme_state],
                 outputs=[cat_plot, trend_plot, anomaly_box, forecast_box],
             )
 
@@ -247,13 +321,49 @@ with gr.Blocks(title="Hearth — every rupee, explained", css=CUSTOM_CSS) as dem
                 limit_input = gr.Number(label="Monthly limit (₹)")
             budget_btn = gr.Button("Set budget")
             budget_status = gr.Textbox(label="", interactive=False, container=False)
-            budget_table = gr.Dataframe(label="Budget vs. actual — this month", interactive=False)
+            budget_table = gr.Dataframe(
+                label="Budget vs. actual — this month (🟢 on track · 🟡 80%+ · 🔴 over)",
+                interactive=False,
+            )
 
             budget_btn.click(
                 set_budget,
                 inputs=[username_box, category_dropdown, limit_input],
                 outputs=[budget_status, budget_table],
             )
+
+        with gr.Tab("🔁 Recurring"):
+            gr.Markdown(
+                "Merchants Hearth has spotted on a repeat schedule — same name, "
+                "same amount, within ~35 days. Good place to check for subscriptions "
+                "you forgot about."
+            )
+            recurring_refresh_btn = gr.Button("Refresh")
+            recurring_table = gr.Dataframe(label="Recurring charges", interactive=False)
+            recurring_refresh_btn.click(_recurring_table, inputs=username_box, outputs=recurring_table)
+            username_box.change(_recurring_table, inputs=username_box, outputs=recurring_table)
+
+        with gr.Tab("⬇️ Export"):
+            gr.Markdown("Download your ledger as a spreadsheet, or a formatted monthly statement.")
+            with gr.Row():
+                csv_btn = gr.Button("Export CSV")
+                pdf_btn = gr.Button("Export PDF statement")
+            export_file = gr.File(label="Your download", interactive=False)
+
+            csv_btn.click(do_export_csv, inputs=username_box, outputs=export_file)
+            pdf_btn.click(do_export_pdf, inputs=username_box, outputs=export_file)
+
+    # theme wiring
+    theme_btn.click(
+        toggle_theme, inputs=[username_box, theme_state], outputs=[theme_state, theme_btn]
+    ).then(apply_theme_class, inputs=theme_state, outputs=demo)
+
+    username_box.change(load_user_theme, inputs=username_box, outputs=theme_state).then(
+        apply_theme_class, inputs=theme_state, outputs=demo
+    ).then(
+        lambda t: gr.update(value=f"{'☀️ Light' if t == 'Dark' else '🌙 Dark'} mode"),
+        inputs=theme_state, outputs=theme_btn,
+    )
 
 if __name__ == "__main__":
     demo.launch()
